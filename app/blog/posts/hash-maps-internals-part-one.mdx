@@ -1,0 +1,153 @@
+---
+title: "Build Your Own HashMaps Part 1: A Spaghetti of Some Funny Logic with a Pretty Face!"
+sub: 'Real chads write their own map implementations'
+slug: 'hashmaps-internals-part-one'
+publishedAt: '2025-07-05'
+summary: 'A simple key-value store that we have all used regardless of what language, but did you know HashMaps actually do not exist?'
+---
+
+# Introduction to HashMaps
+
+So what exactly are HashMaps? Well if you have ever used a simple key-value pair data structure then you've probably
+used a hashmap. HashMaps are a simple Key-Value pair data structure that allow you to store a key and map some value
+to it.
+
+They can store arbitrary value that you want to store in them and can be fetched later whenever the developer demands
+it. However, the core value they provide is not the simplicity but rather the ability to store and fetch data in a
+constant time that is `O(1)` (_though not necessarily true, we will talk about this a little later_). Quite fascinating
+right you have a data structure that is not only simple to use but extremely fast!
+
+Let's first see how are HashMaps defined across several languages and I bet you've seen these:
+
+In JavaScript though there is not a direct HashMap object however there is a Map which behaves exactly like a HashMap
+would. You can perform `Add`, `Update`, `Remove` operations on it in a constant time with a predictable flow.
+```javascript
+const hashmap = new Map();
+
+hashmap.set("key", "value");
+```
+
+C++ exposes two containers called `std::unordered_map` and `std::map` the core difference being that `std::map` runs on
+a `O(log n)` time complexity because they internally use `Red-black trees`.
+```c++
+std::unordered_map<std::string, std::string> u = {
+        {"RED", "#FF0000"},
+        {"GREEN", "#00FF00"},
+        {"BLUE", "#0000FF"}
+};
+```
+
+Go (which we'll be using today) has something similar which it calls map!
+```go
+m := make(map[string]int)
+
+m["route"] = 666
+i, ok := m["route"]
+```
+
+Aside of the syntactic difference you'll observe that the idea behind them stays the same, they are a Key-Value pair
+that can be stored and fetched very quickly.
+
+## 😶‍🌫️ The truth behind the pretty face!
+
+Maps, HashMaps, HashTables — whatever you want to call them — are nothing but clever abstractions built atop some
+surprisingly simple and fundamental data structures, engineered to be fast and powerful.
+
+If I were to write a recipe for a HashMap, it’d go something like this:
+
+Ingredients to make a Tasty HashMap:
+
+1. A good hashing function 🍯
+2. An array of buckets 🍱
+3. Buckets that hold key-value pairs 🔑📦
+4. Plus a cup of coffee — never hurts :p ☕
+
+Under the hood, a HashMap stores a collection of key-value pairs inside an array. But how they’re
+structured is what makes them interesting. Consider this basic struct:
+
+```go
+type Entry struct {
+    Key   string
+    Value int
+}
+```
+
+The `Key` represents the key (`"route"` if we take the above Go example) you wanted to store a `Value` against. And the
+`Value` is of course the value you wanted to store or map it to.
+
+A simple HashMap might be something like this:
+
+```go
+type HashMap struct {
+    table [][]Entry
+}
+```
+
+That `table` is our main array — and each index holds a bucket (`[]Entry`), which is itself a slice of Entry's.
+But wait, why would we need multiple entries in a single bucket?
+
+```
+[ <--stuff--, [{Key: "the_cutest", Value: "you_of_course"}], --stuff--> ]
+```
+
+Glad you asked 😏
+
+Let’s walk through what happens when you want to store a key like "foo" with a value like "bar":
+
+1. The moment you insert "foo", the HashMap sends the key to the hash function.
+2. The hash function returns an unsigned integer — a hash of the key.
+3. Since this integer could be wildly large, we tame it by using modulo: `idx := int(Hash(KEY) % uint64(len(table)))`
+4. Now idx is guaranteed to be within bounds — between 0 and n - 1, where n is the size of our array.
+5. Using this index, we find the bucket and insert our `{Key, Value}` pair there.
+6. If there’s already something in that bucket (that is, we hit a collision), we either:
+    - Update the value if the key already exists.
+    - Append the new entry if it’s a different key entirely.
+
+Boom! 🎉
+Just like that, you've got yourself a working (and beautiful) little HashMap.
+
+Could you believe it’s really that simple? Okay... maybe not that simple. But hey, the gist is all there 😉
+
+## The idea of Hashing
+
+According to WikiPedia, a Hash or a Hashing function is defined as follows:
+
+_*A hash function is any function that can be used to map data of arbitrary size to fixed-size values,
+... The values returned by a hash function are called hash values, hash codes, (hash/message) digests,
+or simply hashes.*_
+
+Think of a function which given an _arbitrary input_, converts it into something more predictable or bounded. Or maybe
+a function that is capable of converting a huge object to a number for example:
+
+```
+fn(x any) -> int
+```
+
+That is a huge oversimplification, of course. But, how about this toy function in Go?
+
+```go
+func Convert(str string) int {
+    sum := 0
+    for _, char := range str {
+        sum += int(char)
+    }
+
+    return sum
+}
+
+func main() {
+	something := Convert("Sourav is NOT a beta!")
+	fmt.Println(something) // Prints `1771`
+
+	something2 := Convert("Sourav is NOT a beta!")
+	fmt.Println(something2) // Prints `1771`
+}
+```
+
+Observe that the function accepts a string `str` and then loops over every rune in that string and converts each rune/char
+into an integer `int(char)` and then sums it up. It's a function given a string `str` will convert that string and
+return an `int`. However, notice that no matter how many times I call it with the same input, it always returns the
+same result — a _pure_ function to be accurate. Being deterministic and pure is what defines a good _hash function_.
+
+And now you know hashing, the above function for sure isn't a sophisticated hashing function, but it represents the idea.
+A Hash function can be used to map data of arbitrary size (our string) to a fixed-size value (integer).
