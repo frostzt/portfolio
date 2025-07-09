@@ -108,7 +108,7 @@ Just like that, you've got yourself a working (and beautiful) little HashMap.
 
 Could you believe it’s really that simple? Okay... maybe not that simple. But hey, the gist is all there 😉
 
-## The idea of Hashing
+## 💭 The idea of Hashing
 
 According to WikiPedia, a Hash or a Hashing function is defined as follows:
 
@@ -151,3 +151,79 @@ same result — a _pure_ function to be accurate. Being deterministic and pure i
 
 And now you know hashing, the above function for sure isn't a sophisticated hashing function, but it represents the idea.
 A Hash function can be used to map data of arbitrary size (our string) to a fixed-size value (integer).
+
+## 💥 Collisions are inevitable
+
+Now you might ask — "_Alright, I get it... but what if two keys, like "*foo*" and "*bar*", end up producing the same hash?_"
+
+Great question! And yes, that's a very real possibility — in fact, it's guaranteed to happen at some point.
+But don’t worry: we’re ready for it.
+
+Remember those “buckets” in our table? Each one is a []Entry — a slice capable of holding multiple entries.
+Here's what that might look like:
+
+```
+[
+    <--stuff--,
+    [
+        {Key: "hash-one", Value: 1},
+        {Key: "hash-two", Value: 2}
+    ],
+    --stuff-->
+]
+```
+
+Notice how both `"hash-one"` and `"hash-two"` live in the same bucket? This is how we handle collisions.
+
+*_😨 But wait, Sourav... isn’t that bad?_*
+
+Like… what if every single key ended up in the same bucket? Wouldn't that turn our glorious `O(1)` into a sad, sluggish `O(n)`?
+
+Well… yes, in the worst case. But let’s break that down.
+
+### 🤯 Common misconceptions about HashMap complexity
+
+The nightmare scenario is that multiple keys hash to the same index, dumping everything into one giant bucket.
+Suddenly, instead of a quick lookup, you’re scanning a long list — and that's `O(n)`.
+
+But the real problem isn’t the data structure itself.
+It’s not the `Entry` struct.
+It’s not the 2D table.
+It’s not even the bucket.
+
+> ✨ It’s the hash function.
+
+If you hard-code a predictable, easily abusable hash function — like this one:
+
+```
+h(x) = (798532978x + 5239023) mod 100000007
+```
+
+Then here's the problem if I know what or how your hash function works I can find out values for `x` such that for all
+the values in domain `x0` to `xn` the range of `h(x)` will be equal `K` and in this case all these values will be
+dumped into one bucket! Thereby degrading the performance to `O(n)`.
+
+In other words, then anyone (or any pattern) that figures out your function can generate values that collide — on purpose.
+All those keys will funnel into a single bucket, and boom — linear time complexity.
+
+💡 A Good Hash Functions
+
+A good hash function tends to have:
+
+1. *Avalanche effect*: Small changes in input should result in drastically different output ([What is Avalanche Effect](https://en.wikipedia.org/wiki/Avalanche_effect))
+2. *Purity*: For a given input, the output must always be the same (i.e., deterministic)
+
+For practical implementations, I often use [FNV-1A](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function),
+which is fast, simple, and distributes reasonably well for strings and small keys. You can also explore this
+great discussion on [hashing algorithms for uniqueness and speed](https://softwareengineering.stackexchange.com/questions/49550/which-hashing-algorithm-is-best-for-uniqueness-and-speed).
+
+🤔 So… Is O(1) a Lie?
+
+Not really. When we say _"Lookups in a HashMap are O(1)"_, what we actually mean is:
+
+> "The _expected_ runtime for lookups is constant time, assuming a well-behaved hash function and a balanced distribution."
+
+That `“1”` is not literal — it’s a small, consistent constant `k`.
+So realistically, your lookup is `O(k)` — where `k` is the number of entries in a bucket (often 1, maybe 2, rarely more).
+
+So yes — collisions happen, and yes — they affect performance. But with the right hash function, they’re manageable, rare, and no reason to panic.

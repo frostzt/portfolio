@@ -52,7 +52,7 @@ export function generateMetadata({ params }) {
 }
 
 export default function Blog({ params }) {
-  let post = getBlogPosts().find((post) => post.slug === params.slug)
+  let post =  getBlogPosts().find((post) => post.slug === params.slug)
 
   if (!post) {
     notFound()
