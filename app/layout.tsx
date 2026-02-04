@@ -6,22 +6,41 @@ import { Navbar } from './components/nav'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import Footer from './components/footer'
+import { PageTransition } from './components/page-transition'
 import { baseUrl } from './sitemap'
 
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'fzt ❤️ Databases',
-    template: '%s',
+    default: 'Sourav Singh Rawat',
+    template: '%s | Sourav Singh Rawat',
   },
-  description: 'fzts portfolio',
+  description: 'Systems engineer writing about databases, distributed systems, and low-level programming. Building with C, Go, and Rust.',
+  keywords: ['systems engineering', 'databases', 'distributed systems', 'C programming', 'Go', 'Rust', 'Redis', 'Valkey', 'software engineering'],
+  authors: [{ name: 'Sourav Singh Rawat', url: baseUrl }],
+  creator: 'Sourav Singh Rawat',
   openGraph: {
-    title: 'fzts portfolio',
-    description: 'fzts portfolio',
+    title: 'Sourav Singh Rawat',
+    description: 'Systems engineer writing about databases, distributed systems, and low-level programming.',
     url: baseUrl,
-    siteName: 'fzts portfolio',
+    siteName: 'Sourav Singh Rawat',
     locale: 'en_US',
     type: 'website',
+    images: [
+      {
+        url: `${baseUrl}/og?title=Sourav%20Singh%20Rawat`,
+        width: 1200,
+        height: 630,
+        alt: 'Sourav Singh Rawat',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Sourav Singh Rawat',
+    description: 'Systems engineer writing about databases, distributed systems, and low-level programming.',
+    creator: '@souravsrawat',
+    images: [`${baseUrl}/og?title=Sourav%20Singh%20Rawat`],
   },
   robots: {
     index: true,
@@ -34,9 +53,20 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
+  alternates: {
+    canonical: baseUrl,
+    types: {
+      'application/rss+xml': `${baseUrl}/rss`,
+    },
+  },
+  verification: {
+    // Add these when you have them:
+    // google: 'your-google-verification-code',
+    // yandex: 'your-yandex-verification-code',
+  },
 }
 
-const cx = (...classes) => classes.filter(Boolean).join(' ')
+const cx = (...classes: string[]) => classes.filter(Boolean).join(' ')
 
 export default function RootLayout({
   children,
@@ -46,16 +76,31 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cx(
-        'text-black bg-white dark:text-white dark:bg-black',
-        GeistSans.variable,
-        GeistMono.variable
-      )}
+      suppressHydrationWarning
+      className={cx(GeistSans.variable, GeistMono.variable)}
     >
-      <body className="antialiased max-w-xl mx-4 mt-8 lg:mx-auto">
-        <main className="flex-auto min-w-0 mt-6 flex flex-col px-2 md:px-0">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                const theme = localStorage.getItem('theme');
+                if (theme === 'light') {
+                  document.documentElement.classList.remove('dark');
+                } else {
+                  document.documentElement.classList.add('dark');
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className="antialiased max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
+        <main className="min-w-0 flex flex-col">
           <Navbar />
-          {children}
+          <PageTransition>
+            {children}
+          </PageTransition>
           <Footer />
           <Analytics />
           <SpeedInsights />

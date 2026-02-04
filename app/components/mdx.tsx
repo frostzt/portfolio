@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { MDXRemote } from 'next-mdx-remote/rsc'
 import { highlight } from 'sugar-high'
 import React from 'react'
+import { CopyButton } from './copy-button'
 
 function Table({ data }) {
   let headers = data.headers.map((header, index) => (
@@ -53,15 +54,43 @@ function Code({ children, ...props }) {
   return <code dangerouslySetInnerHTML={{ __html: codeHTML }} {...props} />
 }
 
+function Pre({ children, ...props }) {
+  const childProps = children?.props || {}
+  const className = childProps.className || ''
+  const language = className.replace('language-', '') || 'text'
+  const code = childProps.children || ''
+  const hasLanguage = language && language !== 'text'
+
+  return (
+    <div className={`relative group ${hasLanguage ? 'has-language' : ''}`}>
+      {hasLanguage && (
+        <div className="absolute top-0 left-0 px-3 py-1 text-xs text-muted bg-secondary rounded-tl-md rounded-br-md font-mono z-10">
+          {language}
+        </div>
+      )}
+      <CopyButton code={code} />
+      <pre {...props}>{children}</pre>
+    </div>
+  )
+}
+
+function Blockquote({ children, ...props }) {
+  return (
+    <blockquote className="pull-quote" {...props}>
+      {children}
+    </blockquote>
+  )
+}
+
 function slugify(str) {
   return str
     .toString()
     .toLowerCase()
-    .trim() // Remove whitespace from both ends of a string
-    .replace(/\s+/g, '-') // Replace spaces with -
-    .replace(/&/g, '-and-') // Replace & with 'and'
-    .replace(/[^\w\-]+/g, '') // Remove all non-word characters except for -
-    .replace(/\-\-+/g, '-') // Replace multiple - with single -
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/&/g, '-and-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
 }
 
 function createHeading(level) {
@@ -96,6 +125,8 @@ let components = {
   Image: RoundedImage,
   a: CustomLink,
   code: Code,
+  pre: Pre,
+  blockquote: Blockquote,
   Table,
 }
 

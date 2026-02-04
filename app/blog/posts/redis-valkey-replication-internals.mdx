@@ -4,6 +4,7 @@ sub: 'How replBufBlock's reference-counted shared memory design enables efficien
 slug: 'redis-valkey-replication-internals'
 publishedAt: '2026-01-14'
 summary: 'How replBufBlock's reference-counted shared memory design enables efficient replication'
+tags: 'databases, systems, c, redis, distributed-systems'
 ---
 
 # The Mystery of Disappearing Data
@@ -338,4 +339,100 @@ Valkey's replica will keep updating its last sync offset and will send the repli
 
 Now let's take one command and follow it just so that we can see all this in action and what happens!
 
-As mentioned earlier we start from the `main` function and go down to the `call` function!
+As mentioned earlier we start from the `main` function and go down to the `call` function! The calling chain to reach this function is pretty long Valkey runs using an event loop which starts at the bottom of the `main` function, the `aeMain` keeps looping and calls the `aeProcessEvents` which triggers a certain block when we receive an event which in turn calls the `connSocketEventHandler` note the idea here is that right now these events are nothing but mere socket events received over TCP.
+
+The socket handler has a `callHandler` generic function which accepts a handler function which calls `readQueryFromClient` here you can guess already what happens we read from the client connection and populate an input buffer. Once here one of the core function `processInputBuffer` is called which parses the input buffer received via the `parseInputBuffer` Valkey uses the RESP protocol which is extremely easy to parse as well.
+
+Once here we also prepare what we parsed into a `serverCommand` struct which looks like this:
+
+```c
+struct serverCommand {
+    /* Declarative data */
+    const char *declared_name;    /* A string representing the command declared_name.
+                                   * It is a const char * for native commands and SDS for module commands. */
+    const char *summary;          /* Summary of the command (optional). */
+    const char *complexity;       /* Complexity description (optional). */
+    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
+    int num_tips;
+    serverCommandProc *proc;        /* Command implementation */
+    int arity;                      /* Number of arguments, it is possible to use -N to say >= N */
+    ... code ...
+};
+```
+
+Note that there are some really cool things that you generally see in Redis or Valkey CLI ie. arity and tips! Once done and finally after a lot of checks we are finally ready to proceed and invoke the `call` command.
+
+## The "Call"-ing
+
+The `call` function is one of the most important function in Valkey's codebase, once everything is done processing, ACL checks, and what not, the `call` function is what actually calls the `proc` above.
+
+```c
+c->cmd->proc(c);
+```
+
+The `cmd` points to the current command which calls the function which holds the logic and implementation of that command. For example if you called `SET myname sourav` this is what my debugger shows:
+
+```shell
+▾ cmd serverCommand * = {declared_name:"set", summary:"Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.", ...}
+ ▸ declared_name const char * = "set"
+ ▸ summary const char * = "Sets the string value of a key, ignoring its type. The key is created if it doesn't exist."
+ ▸ complexity const char * = "O(1)"
+ ▸ since const char * = "1.0.0"
+   doc_flags int = 0
+   group serverCommandGroup = COMMAND_GROUP_STRING
+ ▸ history commandHistory * = {since:"2.6.12", changes:"Added the `EX`, `PX`, `NX` and `XX` options."}
+   num_history int = 5
+   proc serverCommandProc * = (valkey-server`setCommand at t_string.c:231)
+   arity int = -3
+   flags uint64_t = 5
+   acl_categories uint64_t = 32900
+   get_dbid_args commandDbIdArgs * = <null>
+ ▸ key_specs keySpec * = {notes:"RW and ACCESS due to the optional `GET` argument", ...}
+   key_specs_num int = 1
+   getkeys_proc serverGetKeysProc * = (valkey-server`setGetKeys at db.c:2921)
+   num_args int = 5
+ ▸ args serverCommandArg * = {name:"key", type:ARG_TYPE_KEY, key_spec_index:0, ...}
+ ▸ fullname sds = "set"
+ ▸ current_name sds = "set"
+ ▸ latency_histogram hdr_histogram * = {lowest_discernible_value:1, highest_trackable_value:1000000000, ...}
+ ▸ legacy_range_key_spec keySpec = {notes:"RW and ACCESS due to the optional `GET` argument", ...}
+ ▸ subcommands_ht hashtable * = <null>
+ ▸ parent serverCommand * = <null>
+ ▸ module_cmd ValkeyModuleCommand * = <null>
+```
+
+Observe that by merely that you get to know a lot of what that command is trying to do and where it will land next! And we finally end up calling the implementation.
+
+However what we want is what comes after this! Once the logical part is done we run into the following code, something if you're still here is what excited you to read all this in the first place (pat yourself on the back):
+
+```c
+/* Propagate the command into the AOF and replication link.
+ * We never propagate EXEC explicitly, it will be implicitly
+ * propagated if needed (see propagatePendingCommands).
+ * Also, module commands take care of themselves */
+if (flags & CMD_CALL_PROPAGATE && !c->flag.prevent_prop && c->cmd->proc != execCommand &&
+  !(c->cmd->flags & CMD_MODULE)) {
+  int propagate_flags = PROPAGATE_NONE;
+
+  /* Check if the command operated changes in the data set. If so
+   * set for replication / AOF propagation. */
+  if (dirty) propagate_flags |= (PROPAGATE_AOF | PROPAGATE_REPL);
+
+  /* If the client forced AOF / replication of the command, set
+   * the flags regardless of the command effects on the data set. */
+  if (c->flag.force_repl) propagate_flags |= PROPAGATE_REPL;
+  if (c->flag.force_aof) propagate_flags |= PROPAGATE_AOF;
+
+  /* However prevent AOF / replication propagation if the command
+   * implementation called preventCommandPropagation() or similar,
+   * or if we don't have the call() flags to do so. */
+  if (c->flag.prevent_repl_prop || c->flag.module_prevent_repl_prop || !(flags & CMD_CALL_PROPAGATE_REPL))
+      propagate_flags &= ~PROPAGATE_REPL;
+  if (c->flag.prevent_aof_prop || c->flag.module_prevent_aof_prop || !(flags & CMD_CALL_PROPAGATE_AOF))
+      propagate_flags &= ~PROPAGATE_AOF;
+
+  /* Call alsoPropagate() only if at least one of AOF / replication
+   * propagation is needed. */
+  if (propagate_flags != PROPAGATE_NONE) alsoPropagate(c->db->id, c->argv, c->argc, propagate_flags, c->slot);
+}
+```

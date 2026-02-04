@@ -5,7 +5,7 @@ export function BlogPosts() {
   let allBlogs = getBlogPosts()
 
   return (
-    <div>
+    <div className="flex flex-col gap-4">
       {allBlogs
         .sort((a, b) => {
           if (
@@ -18,17 +18,15 @@ export function BlogPosts() {
         .map((post) => (
           <Link
             key={post.slug}
-            className="flex flex-col space-y-1 mb-4"
             href={`/blog/${post.slug}`}
+            className="group grid grid-cols-[100px_1fr] sm:grid-cols-[120px_1fr] items-baseline gap-2 sm:gap-4"
           >
-              <div className="w-full flex flex-col md:flex-row md:flex-nowrap md:items-baseline space-x-0 md:space-x-2">
-                  <p className="text-neutral-600 dark:text-neutral-400 whitespace-nowrap tabular-nums">
-                      {formatDate(post.metadata.publishedAt, false)}
-                  </p>
-                  <p className="text-neutral-900 dark:text-neutral-100 tracking-tight">
-                      {post.metadata.title}
-                  </p>
-              </div>
+            <span className="text-sm text-muted tabular-nums font-mono">
+              {formatDate(post.metadata.publishedAt, false)}
+            </span>
+            <span className="text-primary group-hover:text-secondary transition-colors">
+              {post.metadata.title}
+            </span>
           </Link>
         ))}
     </div>

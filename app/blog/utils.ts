@@ -5,8 +5,9 @@ type Metadata = {
   title: string
   publishedAt: string
   summary: string
-    sub: string
+  sub: string
   image?: string
+  tags?: string
 }
 
 function parseFrontmatter(fileContent: string) {
@@ -54,6 +55,42 @@ export function getBlogPosts() {
   return getMDXData(path.join(process.cwd(), 'app', 'blog', 'posts'))
 }
 
+export function getAllTags(): string[] {
+  const posts = getBlogPosts()
+  const tagsSet = new Set<string>()
+  
+  posts.forEach((post) => {
+    if (post.metadata.tags) {
+      post.metadata.tags.split(',').forEach((tag) => {
+        tagsSet.add(tag.trim().toLowerCase())
+      })
+    }
+  })
+  
+  return Array.from(tagsSet).sort()
+}
+
+export function getPostsByTag(tag: string) {
+  const posts = getBlogPosts()
+  return posts.filter((post) => {
+    if (!post.metadata.tags) return false
+    const tags = post.metadata.tags.split(',').map((t) => t.trim().toLowerCase())
+    return tags.includes(tag.toLowerCase())
+  })
+}
+
+export function parseTags(tagsString?: string): string[] {
+  if (!tagsString) return []
+  return tagsString.split(',').map((t) => t.trim().toLowerCase())
+}
+
+export function getReadingTime(content: string): string {
+  const wordsPerMinute = 200
+  const words = content.trim().split(/\s+/).length
+  const minutes = Math.ceil(words / wordsPerMinute)
+  return `${minutes} min read`
+}
+
 export function formatDate(date: string, includeRelative = false) {
   let currentDate = new Date()
   if (!date.includes('T')) {
@@ -78,8 +115,8 @@ export function formatDate(date: string, includeRelative = false) {
   }
 
   let fullDate = targetDate.toLocaleString('en-us', {
-    month: 'long',
-    day: 'numeric',
+    month: 'short',
+    day: '2-digit',
     year: 'numeric',
   })
 
