@@ -1,17 +1,13 @@
 import Link from 'next/link'
 import { ThemeToggle } from './theme-toggle'
 import { CommandWrapper } from './command-wrapper'
+import { MoreDropdown } from './more-dropdown'
 
-const navItems = {
-  '/': {
-    name: 'home',
-  },
-  '/blog': {
-    name: 'writing',
-  },
-  '/now': {
-    name: 'now',
-  },
+const mainNavItems = {
+  '/': { name: 'home' },
+  '/blog': { name: 'writing' },
+  '/projects': { name: 'projects' },
+  '/now': { name: 'now' },
 }
 
 export function Navbar() {
@@ -19,7 +15,7 @@ export function Navbar() {
     <header className="mb-16">
       <nav className="flex items-center justify-between">
         <div className="flex items-center gap-6">
-          {Object.entries(navItems).map(([path, { name }]) => (
+          {Object.entries(mainNavItems).map(([path, { name }]) => (
             <Link
               key={path}
               href={path}
@@ -28,6 +24,7 @@ export function Navbar() {
               {name}
             </Link>
           ))}
+          <MoreDropdown />
         </div>
         <div className="flex items-center gap-3">
           <CommandWrapper />

@@ -38,8 +38,13 @@ export function CommandPalette({ posts }: CommandPaletteProps) {
   const pages: Page[] = [
     { title: 'Home', href: '/', type: 'page' },
     { title: 'Writing', href: '/blog', type: 'page' },
+    { title: 'Projects', href: '/projects', type: 'page' },
     { title: 'Now', href: '/now', type: 'page' },
     { title: 'Uses', href: '/uses', type: 'page' },
+    { title: 'Bookshelf', href: '/bookshelf', type: 'page' },
+    { title: 'Music', href: '/music', type: 'page' },
+    { title: 'Gallery', href: '/gallery', type: 'page' },
+    { title: 'Ideas', href: '/ideas', type: 'page' },
   ]
 
   if (!open) {
