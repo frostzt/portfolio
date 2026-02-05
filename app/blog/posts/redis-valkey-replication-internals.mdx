@@ -578,7 +578,7 @@ if (tail && tail->size > tail->used) {
 ...code...
 ```
 
-Once that is done and if the client is writeable the `sendReplyToClient` is called which tries it in two ways either by offloading this write to IO Threads if not then it manually calls the `writeToClient` to perform the write. This if it contains multiple entires and buffer calles a function similar to `writev` which writes a vector. You can read more about it here: https://linux.die.net/man/3/writev
+Once that is done and if the client is writeable the `sendReplyToClient` is called which tries it in two ways either by offloading this write to IO Threads if not then it manually calls the `writeToClient` to perform the write. This if it contains multiple entires and buffer calles a function similar to `writev` which writes a vector. You can read more about it here: [writev(2)](https://linux.die.net/man/3/writev)
 
 And that my friends is how the entire replication stream flows from the Primary over to the client. Which writes this back.
 
