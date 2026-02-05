@@ -2,7 +2,7 @@
 title: "Redis/Valkey Replication Internals: The Architecture Behind Zero-Copy Command Propagation"
 sub: 'How replBufBlock's reference-counted shared memory design enables efficient replication'
 slug: 'redis-valkey-replication-internals'
-publishedAt: '2026-01-14'
+publishedAt: '2026-02-05'
 summary: 'How replBufBlock's reference-counted shared memory design enables efficient replication'
 tags: 'databases, systems, c, redis, distributed-systems'
 ---
@@ -406,33 +406,75 @@ Observe that by merely that you get to know a lot of what that command is trying
 However what we want is what comes after this! Once the logical part is done we run into the following code, something if you're still here is what excited you to read all this in the first place (pat yourself on the back):
 
 ```c
-/* Propagate the command into the AOF and replication link.
- * We never propagate EXEC explicitly, it will be implicitly
- * propagated if needed (see propagatePendingCommands).
- * Also, module commands take care of themselves */
-if (flags & CMD_CALL_PROPAGATE && !c->flag.prevent_prop && c->cmd->proc != execCommand &&
-  !(c->cmd->flags & CMD_MODULE)) {
-  int propagate_flags = PROPAGATE_NONE;
+/* Do some maintenance job and cleanup */
+afterCommand(c);
+```
 
-  /* Check if the command operated changes in the data set. If so
-   * set for replication / AOF propagation. */
-  if (dirty) propagate_flags |= (PROPAGATE_AOF | PROPAGATE_REPL);
+Hiding in plain sight is a small function that says "Do some maintenance job and cleanup", well let's explore what's the maintenance job and cleanup? The flow travels from `afterCommand` to `postExecutionUnitOperations` which calls `propagatePendingCommands` which further calls `propagateNow`, this is the most interesting function let's see what's in there:
 
-  /* If the client forced AOF / replication of the command, set
-   * the flags regardless of the command effects on the data set. */
-  if (c->flag.force_repl) propagate_flags |= PROPAGATE_REPL;
-  if (c->flag.force_aof) propagate_flags |= PROPAGATE_AOF;
+```c
+if (propagate_to_aof) feedAppendOnlyFile(dbid, argv, argc);
+if (propagate_to_repl) replicationFeedReplicas(dbid, argv, argc);
+if (propagate_to_slot_migration) clusterFeedSlotExportJobs(dbid, argv, argc, slot);
+```
 
-  /* However prevent AOF / replication propagation if the command
-   * implementation called preventCommandPropagation() or similar,
-   * or if we don't have the call() flags to do so. */
-  if (c->flag.prevent_repl_prop || c->flag.module_prevent_repl_prop || !(flags & CMD_CALL_PROPAGATE_REPL))
-      propagate_flags &= ~PROPAGATE_REPL;
-  if (c->flag.prevent_aof_prop || c->flag.module_prevent_aof_prop || !(flags & CMD_CALL_PROPAGATE_AOF))
-      propagate_flags &= ~PROPAGATE_AOF;
+There are these 3 statements each with some specific job, if you recall about AOF the first call does exactly what it says its for AOF persistence and writes the commend provided in argv into the AOF file. The second is what we're most interested in. The comment above the function says the following:
 
-  /* Call alsoPropagate() only if at least one of AOF / replication
-   * propagation is needed. */
-  if (propagate_flags != PROPAGATE_NONE) alsoPropagate(c->db->id, c->argv, c->argc, propagate_flags, c->slot);
+```c
+/* Propagate write commands to replication stream.
+ *
+ * This function is used if the instance is a primary: we use the commands
+ * received by our clients in order to create the replication stream.
+ * Instead if the instance is a replica and has sub-replicas attached, we use
+ * replicationFeedStreamFromPrimaryStream() */
+```
+
+There is also a cool check that you should note:
+
+```c
+/* In case we propagate a command that doesn't touch keys (PING, REPLCONF) we
+ * pass dbid=-1 that indicate there is no need to replicate `select` command. */
+serverAssert(dictid == -1 || (dictid >= 0 && dictid < server.dbnum));
+```
+
+Commands like these are generally NOT propagated as they don't need to! PING and REPLCONF are commands that don't affect any keys! Now things get confusing, interesting, and super duper complex let's go step by step, before we start feeding the replication stream. The replicas use a global shared buffer instead of a private buffer which means before we do any writes into this replication stream we need to make sure there are no pending commands. Which is done through `prepareClientToWrite` which internally calls `putClientInPendingWriteQueue`.
+
+The core idea here is that only CLIENTS should receive data which means we need to skip fake client (used to load AOF in memory) or maybe the primary itself. The function also installs the write handler for this client. The term install means that we will be registering the socket's fd with the event loop to check for write-readiness. Plainly think of this like this: Lemme subscribe to the notifications of when this can accept more data. Why? Because the buffer might already be full or not online yet. In this case we will buffer the data in userspace and when the client is backup or writeable we write by `sendReplyToClient`.
+
+You can see this in the following function called from within:
+
+```c
+static inline int isReplicaReadyForReplData(client *replica) {
+    return (replica->repl_data->repl_state == REPLICA_STATE_ONLINE || replica->repl_data->repl_state == REPLICA_STATE_BG_RDB_LOAD) &&
+           !(replica->flag.close_asap);
 }
 ```
+
+Now we keep calling the `feedReplicationBuffer` and keep adding data to the global replication buffer:
+
+```c
+...code...
+
+/* Append to tail string when possible. */
+if (tail && tail->size > tail->used) {
+    start_node = listLast(server.repl_buffer_blocks);
+    start_pos = tail->used;
+    /* Copy the part we can fit into the tail, and leave the rest for a
+     * new node */
+    size_t avail = tail->size - tail->used;
+    size_t copy = (avail >= len) ? len : avail;
+    memcpy(tail->buf + tail->used, s, copy);
+    tail->used += copy;
+    s += copy;
+    len -= copy;
+    server.primary_repl_offset += copy;
+    server.repl_backlog->histlen += copy;
+
+...code...
+```
+
+Once that is done and if the client is writeable the `sendReplyToClient` is called which tries it in two ways either by offloading this write to IO Threads if not then it manually calls the `writeToClient` to perform the write. This if it contains multiple entires and buffer calles a function similar to `writev` which writes a vector. You can read more about it here: https://linux.die.net/man/3/writev
+
+And that my friends is how the entire replication stream flows from the Primary over to the client. Which writes this back.
+
+Given this blog is a little too long we'll be creating this project of ours in a new one so stay tuned and meanwhile I'd really say you have to explore this beauty! Now that you know use the above to follow along and see what's happening inside the Valkey codebase. Some of the smartest people on this planet has worked on this and honestly is an engineering materpiece from which we all can learn from.
