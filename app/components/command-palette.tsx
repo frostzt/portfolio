@@ -39,6 +39,7 @@ export function CommandPalette({ posts }: CommandPaletteProps) {
     { title: 'Home', href: '/', type: 'page' },
     { title: 'Writing', href: '/blog', type: 'page' },
     { title: 'Now', href: '/now', type: 'page' },
+    { title: 'Uses', href: '/uses', type: 'page' },
   ]
 
   if (!open) {
@@ -55,9 +56,9 @@ export function CommandPalette({ posts }: CommandPaletteProps) {
 
   return (
     <div className="fixed inset-0 z-50">
-      <div 
-        className="fixed inset-0 bg-black/50" 
-        onClick={() => setOpen(false)} 
+      <div
+        className="fixed inset-0 bg-black/50"
+        onClick={() => setOpen(false)}
       />
       <div className="fixed top-[20%] left-1/2 -translate-x-1/2 w-full max-w-lg">
         <Command
