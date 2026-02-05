@@ -18,11 +18,34 @@ Think about it, you already have a key on master and you try to overwrite that k
 > hsetex myhash keepttl fields f1 v1
 ```
 
-Do you see anything special above? Well think about it, the first statement creates a new hashset called `myhash` and adds a key into it called `f1` with value `v1` with time-to-live of 3 seconds. We then run the same however we use `keepttl` the idea behind a `keepttl` command is that you ask Valkey to preserve the `TTL` set on that field.
+Do you see anything special above? Well think about it, the first statement creates a new hashset called `myhash` and adds a key into it called `f1` with value `v1` with a time-to-live of 3 seconds. We then run the same however we use `keepttl` the idea behind a `keepttl` command is that you ask Valkey to preserve the `TTL` set on that field.
 
 However things are never this simple! Say you had a network partition or a delay between the first and the last command the Master node ran the commands in succession however on the replica the first command ran and due to a delay the second command ran after say 4 seconds.
 
-Now we are in a state of inconsistency! Master says that `myhash` has a field called `f1` which is expired however the replica still contains this key, with what TTL exactly? Well since the command replicated had just a `KEEPTTL` field this key will live infinitely (by the time you're reading this blog this has already been merged and fixed we'll talk about it soon ;)
+Now we are in a state of inconsistency! Master says that `myhash` has a field called `f1` which is expired however the replica still contains this key, with what TTL exactly? Since the replicated command only has `KEEPTTL` (and the original TTL already expired on the replica), this key won't have any TTL on the replica and will live infinitely (by the time you're reading this blog this has already been merged and fixed we'll talk about it soon ;)
+
+<Mermaid chart={`sequenceDiagram
+    participant C as Client
+    participant M as Master
+    participant R as Replica
+    
+    C->>M: HSETEX EX 3 myhash fields f1 v1
+    M->>M: Set f1 with TTL=3s
+    M->>R: Replicate: HSETEX EX 3 myhash fields f1 v1
+    R->>R: Set f1 with TTL=3s
+    
+    Note over M,R: Network delay occurs...
+    Note over R: TTL expires on replica (4s passed)
+    R->>R: f1 expired and deleted
+    
+    C->>M: HSETEX myhash KEEPTTL fields f1 v1
+    M->>M: Set f1, keep existing TTL
+    M->>R: Replicate: HSETEX myhash KEEPTTL fields f1 v1
+    R->>R: Set f1 with KEEPTTL but no TTL exists!
+    
+    Note over M: f1 has TTL (will expire)
+    Note over R: f1 has NO TTL (lives forever!)
+`} caption="The KEEPTTL bug: network delays can cause TTL inconsistencies between master and replica" />
 
 Note that everything you read in this blog is written from a perspective that you my reader are also an engineer and know and understand C (don't fret too much I'll keep explaining).
 
@@ -35,6 +58,33 @@ I am assuming you already know what replication is, if you don't then, "Replicat
 ## Primary-Replica Architecture
 
 Valkey also follows the Primary-Replica architecture where there is one master which accepts writes and these writes are then propagated to all the replicas subscribed to it. The general flow being that all your writes will always go to the master and reads will be going to the replicas.
+
+<Mermaid chart={`flowchart TB
+    subgraph Clients
+        C1[Client 1]
+        C2[Client 2]
+        C3[Client 3]
+    end
+    
+    subgraph Primary
+        M[Master Node]
+        RB[Replication Buffer]
+    end
+    
+    subgraph Replicas
+        R1[Replica 1]
+        R2[Replica 2]
+    end
+    
+    C1 -->|writes| M
+    C2 -->|writes| M
+    C3 -->|reads| R1
+    C3 -->|reads| R2
+    
+    M --> RB
+    RB -->|async propagation| R1
+    RB -->|async propagation| R2
+`} caption="Primary-Replica architecture: writes go to master, reads can be served by replicas" />
 
 Valkey by default uses async replication the idea being that every client keeps a track of the commands that it has replicated, here's a simplified version of the `client` struct from `server.h` in Valkey:
 
@@ -64,7 +114,7 @@ typedef struct client {
 
 Observe that we a pointer to something called `ref_repl_buf_node`, it essentially points to the a block of memory on the master on which the replication data is stored. We will dive more deeper into `replBufBlock` which is the magic behind an efficient replication strategy used by Valkey and Redis.
 
-Valkey also is very smart about replication the master maintains something called a "Repl Backlog" which is the amount of RESP commands that are stored in the buffer this is something that is maintained by the primary which means if the client requests any command that was executed before the available backlog Valkey can optionally switch over to synchronous replication where it can request a full copy of the data through RDB (one of the two persistance options the other being AOF).
+Valkey also is very smart about replication the master maintains something called a "Repl Backlog" which is the amount of RESP commands that are stored in the buffer this is something that is maintained by the primary which means if the client requests any command that was executed before the available backlog Valkey falls back to a full resync where it requests a full copy of the data through RDB (one of the two persistance options the other being AOF).
 
 ## A quick word about Hash Field Expiration (HFE)
 
@@ -73,7 +123,7 @@ One thing before we go any further, let's talk about HFE. Redis and Valkey are s
 Valkey supports something called Hash Field Expiration wherein individual keys in a Hash can also have their own TTLs. To understand this let's quickly talk about how Valkey handles expiration. In general there are two ways expired keys are reclaimed:
 
 1. Lazy Expiration -- when the user performs a Get on a key Valkey checks if the key requested is supposed to be expired in that case it deletes it immediately.
-2. Active Seek -- Valkey runs a cron job in the background which runs 10 times every second sampling a small set of keys with expiration and deletes the one not needed.
+2. Active Seek -- Valkey runs a cron job in the background which runs 10 times every second sampling a small set of keys with expiration and deletes the ones that have already expired.
 
 Valkey extended the job to support this, note that the core challenge here is that you could have several hash sets that can contain millions of keys themselves. They do it via something called a `vset` (Volatile Set) a semi-strcutured data structure, honestly if you wanna read about it more here is a blog Ran wrote [Introducing Hash Field Expirations](https://valkey.io/blog/hash-fields-expiration) and you can check it in `vset.h` and `vset.c` for its implementation.
 
@@ -250,6 +300,17 @@ Replication Buffer (linked list of blocks):
 
 Let's take one block which is just one instance of `replBufBlock` the idea here is that the `buf` is a shared memory buffer which holds commands that are to be sent over to the replicas. That's all there is to it.
 
+<Mermaid chart={`flowchart TB
+    subgraph LinkedList[Replication Buffer - Linked List]
+        direction LR
+        B1["Block 0<br/>refcount: 1<br/>offset: 0"] --> B2["Block 1<br/>refcount: 0<br/>offset: 1024"] --> B3["Block 2<br/>refcount: 2<br/>offset: 2048"]
+    end
+    
+    BL[Repl Backlog] -.->|references| B1
+    RA[Replica A] -.->|references| B3
+    RB[Replica B] -.->|references| B3
+`} caption="replBufBlock linked list: each block tracks its reference count, allowing safe trimming from the head" />
+
 The primary instance is the one which manages almost everything, the master node is responsible for creating the replication buffer. Which is generally a Linked List containing replBufBlock as nodes.
 
 Let's talk about the structure of the block itself, we have something called `refcount` this is used to count the numbers of readers actively using this node. The replication buffer (everytime I say replication buffer its a linked list) contains all the RESP commands ran on master in a sequence, however there are replicas actively requesting data. Therefore every replica also sends an offset, the offset where they want the data from.
@@ -305,7 +366,7 @@ connection *repl_rdb_transfer_s;     /* Primary FULL SYNC connection (RDB downlo
 ...code...
 ```
 
-Observe in the above struct we have `replid` and `repl_transfer_last_fsync_off` in general these two fields are used by the replica with PSYNC command to the primary, in the function `replicaReceiveRDBFromPrimaryToDisk` we have the following:
+Observe in the above struct we have `replid` and `repl_transfer_last_fsync_off`. The `replid` is used by the replica with the PSYNC command to the primary, while `repl_transfer_last_fsync_off` tracks periodic disk flushes during RDB loading. In the function `replicaReceiveRDBFromPrimaryToDisk` we have the following:
 
 ```c
 ...code...
@@ -342,6 +403,27 @@ Now let's take one command and follow it just so that we can see all this in act
 As mentioned earlier we start from the `main` function and go down to the `call` function! The calling chain to reach this function is pretty long Valkey runs using an event loop which starts at the bottom of the `main` function, the `aeMain` keeps looping and calls the `aeProcessEvents` which triggers a certain block when we receive an event which in turn calls the `connSocketEventHandler` note the idea here is that right now these events are nothing but mere socket events received over TCP.
 
 The socket handler has a `callHandler` generic function which accepts a handler function which calls `readQueryFromClient` here you can guess already what happens we read from the client connection and populate an input buffer. Once here one of the core function `processInputBuffer` is called which parses the input buffer received via the `parseInputBuffer` Valkey uses the RESP protocol which is extremely easy to parse as well.
+
+<Mermaid chart={`flowchart TB
+    subgraph EL[Event Loop]
+        A[aeMain] --> B[aeProcessEvents]
+    end
+    
+    B --> C[connSocketEventHandler]
+    C --> D[readQueryFromClient]
+    
+    subgraph CMD[Command Processing]
+        D --> E[processInputBuffer]
+        E --> F[processCommand]
+        F --> G["call → cmd->proc(c)"]
+    end
+    
+    subgraph PROP[Propagation]
+        G --> H[afterCommand]
+        H --> I[propagateNow]
+        I --> J[replicationFeedReplicas]
+    end
+`} caption="Command execution flow: from event loop to replication propagation" />
 
 Once here we also prepare what we parsed into a `serverCommand` struct which looks like this:
 
@@ -418,7 +500,30 @@ if (propagate_to_repl) replicationFeedReplicas(dbid, argv, argc);
 if (propagate_to_slot_migration) clusterFeedSlotExportJobs(dbid, argv, argc, slot);
 ```
 
-There are these 3 statements each with some specific job, if you recall about AOF the first call does exactly what it says its for AOF persistence and writes the commend provided in argv into the AOF file. The second is what we're most interested in. The comment above the function says the following:
+There are these 3 statements each with some specific job, if you recall about AOF the first call does exactly what it says its for AOF persistence and writes the commend provided in argv into the AOF file. The second is what we're most interested in.
+
+<Mermaid chart={`flowchart TB
+    P[propagateNow]
+    
+    P --> C1{propagate_to_aof?}
+    P --> C2{propagate_to_repl?}
+    P --> C3{propagate_to_slot_migration?}
+    
+    C1 -->|yes| AOF[feedAppendOnlyFile]
+    C2 -->|yes| REPL[replicationFeedReplicas]
+    C3 -->|yes| SLOT[clusterFeedSlotExportJobs]
+    
+    AOF --> D1[(AOF File)]
+    
+    REPL --> FB[feedReplicationBuffer]
+    FB --> RB[replBufBlock List]
+    RB --> R1[Replica 1]
+    RB --> R2[Replica 2]
+    
+    SLOT --> MIG[Slot Migration Jobs]
+`} caption="propagateNow: commands flow to AOF, replicas, and cluster slot migrations" />
+
+The comment above the function says the following:
 
 ```c
 /* Propagate write commands to replication stream.
@@ -439,7 +544,7 @@ serverAssert(dictid == -1 || (dictid >= 0 && dictid < server.dbnum));
 
 Commands like these are generally NOT propagated as they don't need to! PING and REPLCONF are commands that don't affect any keys! Now things get confusing, interesting, and super duper complex let's go step by step, before we start feeding the replication stream. The replicas use a global shared buffer instead of a private buffer which means before we do any writes into this replication stream we need to make sure there are no pending commands. Which is done through `prepareClientToWrite` which internally calls `putClientInPendingWriteQueue`.
 
-The core idea here is that only CLIENTS should receive data which means we need to skip fake client (used to load AOF in memory) or maybe the primary itself. The function also installs the write handler for this client. The term install means that we will be registering the socket's fd with the event loop to check for write-readiness. Plainly think of this like this: Lemme subscribe to the notifications of when this can accept more data. Why? Because the buffer might already be full or not online yet. In this case we will buffer the data in userspace and when the client is backup or writeable we write by `sendReplyToClient`.
+The core idea here is that only CLIENTS should receive data which means we need to skip fake client (used to load AOF in memory) or maybe the primary itself. The function also installs the write handler for this client. The term install means that we will be registering the socket's fd with the event loop to check for write-readiness. Think of it as subscribing to notifications of when this can accept more data. Why? Because the buffer might already be full or not online yet. In this case we will buffer the data in userspace and when the client is backup or writeable we write by `sendReplyToClient`.
 
 You can see this in the following function called from within:
 
