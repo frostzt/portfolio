@@ -4,6 +4,7 @@ import { MDXRemote } from 'next-mdx-remote/rsc'
 import { highlight } from 'sugar-high'
 import React from 'react'
 import { CopyButton } from './copy-button'
+import { MermaidWrapper } from './mermaid-wrapper'
 
 function Table({ data }) {
   let headers = data.headers.map((header, index) => (
@@ -128,6 +129,7 @@ let components = {
   pre: Pre,
   blockquote: Blockquote,
   Table,
+  Mermaid: MermaidWrapper,
 }
 
 export function CustomMDX(props) {
