@@ -11,12 +11,16 @@ interface GalleryItem {
   instagramUrl?: string
 }
 
-// Add your images here - save them to /public/gallery/
 const photographyPosts: GalleryItem[] = [
   {
     src: '/gallery/photography-1.jpg',
-    alt: 'Photography',
+    alt: 'Her memories',
     instagramUrl: 'https://www.instagram.com/p/DUYouKUj4x9/',
+  },
+  {
+    src: '/gallery/photography-2.jpg',
+    alt: 'In plain sight',
+    instagramUrl: 'https://www.instagram.com/p/DUb1EnpE98r/',
   },
 ]
 
@@ -25,6 +29,18 @@ const drawingPosts: GalleryItem[] = [
     src: '/gallery/drawing-1.jpg',
     alt: 'Drawing',
     instagramUrl: 'https://www.instagram.com/p/C2Cvoa-LMZk',
+  },
+  {
+    src: '/gallery/drawing-2.jpg',
+    alt: 'Drawing',
+  },
+  {
+    src: '/gallery/drawing-3.jpg',
+    alt: 'Drawing',
+  },
+  {
+    src: '/gallery/drawing-4.jpg',
+    alt: 'Drawing',
   },
 ]
 
