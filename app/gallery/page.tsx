@@ -39,7 +39,7 @@ const drawingPosts: GalleryItem[] = [
     alt: 'Drawing',
   },
   {
-    src: '/gallery/drawing-4.jpg',
+    src: '/gallery/drawing-4.png',
     alt: 'Drawing',
   },
 ]
