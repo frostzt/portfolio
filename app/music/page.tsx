@@ -1,7 +1,21 @@
+import { SoundCloudEmbed } from 'app/components/soundcloud-embed'
+
 export const metadata = {
   title: 'Music',
   description: 'What I listen to and occasionally create.',
 }
+
+interface Track {
+  url: string
+  title: string
+}
+
+const myTracks: Track[] = [
+  {
+    url: 'https://soundcloud.com/frostz-387891237/rain',
+    title: 'Rain',
+  },
+]
 
 export default function MusicPage() {
   return (
@@ -19,15 +33,14 @@ export default function MusicPage() {
           <h2 className="text-sm font-medium text-muted uppercase tracking-wider mb-4">
             What I Make
           </h2>
-          <p className="text-secondary mb-4">
-            Mostly lo-fi beats and ambient stuff. Nothing released yet,
-            but maybe someday when I stop being a perfectionist.
+          <p className="text-secondary mb-6">
+            Mostly lo-fi beats and ambient stuff but sometimes EDM lol. Here's what I've released so far:
           </p>
-          {/* <div className="bg-secondary rounded-md p-4 border border-primary"> */}
-          {/*   <p className="text-muted text-sm font-mono"> */}
-          {/*     // TODO: embed SoundCloud or upload tracks here */}
-          {/*   </p> */}
-          {/* </div> */}
+          <div className="space-y-4">
+            {myTracks.map((track, index) => (
+              <SoundCloudEmbed key={index} url={track.url} title={track.title} />
+            ))}
+          </div>
         </div>
 
         <div>
@@ -56,17 +69,6 @@ export default function MusicPage() {
               <span className="text-primary">FL Studio</span> — digital everything
             </li>
           </ul>
-        </div>
-
-        <div>
-          <h2 className="text-sm font-medium text-muted uppercase tracking-wider mb-4">
-            Playlists
-          </h2>
-          <div className="bg-secondary rounded-md p-4 border border-primary">
-            <p className="text-muted text-sm font-mono">
-              // Rain in making will come soon!!!
-            </p>
-          </div>
         </div>
       </div>
     </section>
