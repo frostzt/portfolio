@@ -22,6 +22,11 @@ const photographyPosts: GalleryItem[] = [
     alt: 'In plain sight',
     instagramUrl: 'https://www.instagram.com/p/DUb1EnpE98r/',
   },
+  {
+    src: '/gallery/photography-3.jpg',
+    alt: 'Were for her',
+    instagramUrl: 'https://www.instagram.com/p/DUeF2JRE-zj/',
+  },
 ]
 
 const drawingPosts: GalleryItem[] = [
